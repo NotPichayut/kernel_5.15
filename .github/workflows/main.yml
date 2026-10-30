@@ -605,7 +605,7 @@ jobs:
           find kernels -name "Image.*" -exec cp {} AnyKernel3/ \;
           
           # Create ZIP
-          ZIP_NAME="Anykernel3_${{ github.event.inputs.kernelBranch }}_${BUILD_TIME}.zip"
+          ZIP_NAME="Anykernel3_BakaSU_${{ github.event.inputs.kernelBranch }}${{ github.event.inputs.localVersion }}_${BUILD_TIME}.zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -613,7 +613,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: "📤 Upload final package"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_PATH }}
@@ -634,9 +634,10 @@ jobs:
       
          📦 *Build Information:*
          • Kernel: \`Linux ${{ env.KERNEL_VERSION }}\`
-         • Android: \`13-16\`
+         • Android: \`13-17\`
          • Branch: \`${{ github.event.inputs.kernelBranch }}\`
-         • Device: \`${{ github.event.inputs.kernelDevice }}\`
+         • Defconfig: \`${{ github.event.inputs.kernelDevice }}\`
+         • Device: \`github.event.inputs.kernelDevice\`
     
          ⚙️ *Configuration:*
          • LTO: \`${{ github.event.inputs.LtoOptimizations }}\`
@@ -659,9 +660,10 @@ jobs:
       
          📦 *Build Information:*
          • Kernel: \`Linux ${{ env.KERNEL_VERSION }}\`
-         • Android: \`13-16\`
+         • Android: \`13-17\`
          • Branch: \`${{ github.event.inputs.kernelBranch }}\`
-         • Device: \`Redmi Note 12/13 4G. Pad SE\`
+         • Defconfig: \`${{ github.event.inputs.kernelDevice }}\`
+         • Device: \`Redmi Note 12, Redmi Note 13, Redmi Pad SE\`
     
          ⚙️ *Configuration:*
          • LTO: \`${{ github.event.inputs.LtoOptimizations }}\`
