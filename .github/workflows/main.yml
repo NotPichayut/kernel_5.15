@@ -1,4 +1,4 @@
-name: "Build"
+name: "Advanced Build"
 
 env:
   OUT_DIR: "out"
@@ -15,7 +15,7 @@ on:
         default: "https://github.com/NotPichayut/kernel_5.15"
       kernelBranch:
         description: "Kernel branch"
-        required: true
+        required: false
         type: string
         default: "comet"
       kernelDevice:
@@ -23,11 +23,6 @@ on:
         required: true
         type: string
         default: "gki"
-      kernelSpoofVersion:
-        description: "Spoof kernel version (format: X.Y.Z)"
-        required: false
-        type: string
-        default: ""
       localVersion:
         description: "Custom localversion name (e.g., -mybuild)"
         required: false
@@ -42,38 +37,9 @@ on:
           - "noksu"
           - "ksu"
           - "both"
-      ksuVariant:
-        description: "KSU implementation (if KSU enabled)"
-        required: true
-        type: choice
-        default: "BakaSU"
-        options:
-          - "KernelSU"
-          - "KowSU"
-          - "SukiSU"
-          - "BakaSU"
-          - "MamboSU"
-          - "KSU-Next"
-          - "KSU-Next(SUSFS)"
-      susfsSupport:
-        description: "Add SUSFS Implementation (if KSU Enabled)"
-        required: true
-        type: choice
-        default: "Enabled"
-        options:
-          - "Enabled"
-          - "Disabled"
-      NoMountSupport:
-        description: "Implement NoMount integration via kernel-side(if KSU Enabled)"
-        required: false
-        type: choice
-        default: "yes"
-        options:
-          - "yes"
-          - "no"
       tickRate:
         description: "Kernel tick rate (Hz)"
-        required: true
+        required: false
         type: choice
         default: "default"
         options:
@@ -81,12 +47,9 @@ on:
           - "100Hz"
           - "250Hz"
           - "300Hz"
-          - "500Hz"
-          - "600Hz"
-          - "750Hz"
           - "1000Hz"
       kProfilesMode:
-        description: "Set Kprofiles Mode, only for kaze & zepharo branch (Battery = 1, Balanced = 2, Performance = 3)"
+        description: "Set Kprofiles Mode (Battery = 1, Balanced = 2, Performance = 3)"
         required: false
         type: choice
         default: "default"
@@ -105,7 +68,7 @@ on:
           - "none"
       optimizationLevel:
         description: "Compiler optimization level"
-        required: true
+        required: false
         type: choice
         default: "O2"
         options:
@@ -117,7 +80,7 @@ on:
         description: "build tools"
         required: true
         type: choice
-        default: "android-tools"
+        default: "clang-r614150"
         options:
           - "clang-r614150"
           - "custom-tools"
@@ -160,38 +123,6 @@ jobs:
           git clone --recursive --branch ${{ github.event.inputs.kernelBranch }} \
             ${{ github.event.inputs.kernelSourceURL }} ${{ env.kernelName }} --depth=1
 
-      - name: "👀 Safe Kernel Version Spoof"
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          echo "🔧 Starting dynamic kernel version spoof..."
-          
-          SPOOF_VERSION="${{ github.event.inputs.kernelSpoofVersion }}"
-          LOCAL_VERSION="${{ github.event.inputs.localVersion }}"
-          FULL_VERSION="${SPOOF_VERSION}${LOCAL_VERSION}"
-          
-          if [ -z "$SPOOF_VERSION" ]; then
-            echo "⚠️ No spoof version provided. Using default source version."
-          else
-            echo "➡️ Target Full Version: $FULL_VERSION"
-
-            # 1. Hardcode KERNELVERSION including the local suffix
-            sed -i "s/^KERNELVERSION =.*/KERNELVERSION = $FULL_VERSION/" Makefile
-            
-            # 2. Force configuration overrides in defconfig
-            CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-            # Set localversion
-            if [ -n "${{ github.event.inputs.localVersion }}" ]; then
-               echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.localVersion }}\"" >> "$CONFIG_FILE"
-            fi
-            
-            # 3. Update build constants for GKI
-            if [ -f "build.config.constants" ]; then
-                sed -i "s/^KERNEL_VERSION=.*/KERNEL_VERSION=$FULL_VERSION/" build.config.constants
-            fi
-
-            echo "✅ Spoof applied successfully. Final name: $FULL_VERSION"
-          fi
-
       - name: "📥 Initialize repo & AOSP clang-r614150"
         if: github.event.inputs.buildToolchains == 'clang-r614150'
         working-directory: ${{ env.WORK_DIR}}
@@ -207,7 +138,7 @@ jobs:
     
          mkdir -p prebuilts/clang/host/linux-x86/clang-r614150
          tar -xzf prebuilts/clang/host/linux-x86/clang-r614150.tar.gz -C prebuilts/clang/host/linux-x86/clang-r614150
-         rm -rf prebuilts/clang/host/linux-x86/clang-r614250.tar.gz
+         rm -rf prebuilts/clang/host/linux-x86/clang-r614150.tar.gz
 
          # Remove any other Clang versions that might have been synced
          rm -rf prebuilts/clang/host/linux-x86/clang-3289846 \
@@ -269,10 +200,10 @@ jobs:
           echo "⚙️ Using Clang version:"
           "$CLANG_PATH/clang" --version
           
-      - name: 📐 Setup SWAP 24GB
+      - name: 📐 Setup SWAP 20GB
         uses: pierotofy/set-swap-space@master
         with:
-            swap-size-gb: 24
+            swap-size-gb: 20
             
       - name: 📐 Tune Swap
         run: |
@@ -289,7 +220,7 @@ jobs:
               mkdir -p $(pwd)/${{ env.OUT_DIR }}
               args="$args O=$(pwd)/${{ env.OUT_DIR }}"
             fi
-            args="$args ARCH=arm64 LLVM=1 LTO=full"
+            args="$args ARCH=arm64 LLVM=1 LTO=thin"
             args="$args CROSS_COMPILE=aarch64-linux-gnu-"
             args="$args CLANG_TRIPLE=aarch64-linux-gnu-"
             args="$args AR=llvm-ar"
@@ -304,7 +235,7 @@ jobs:
          echo 'KBUILD_CFLAGS += -Wno-implicit-function-declaration' >> Makefile
          echo 'KBUILD_CFLAGS += -Wno-sometimes-uninitialized' >> Makefile
          echo "Custom Makefile line added successfully"
-
+    
       - name: "⚙️ Configure kernel"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         run: |
@@ -318,6 +249,9 @@ jobs:
          if [ -n "${{ github.event.inputs.localVersion }}" ]; then
           echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.localVersion }}\"" >> "$CONFIG_FILE"
          fi
+         
+         # strip -android13-8-g<hash>: setlocalversion prints only localVersion
+          printf "#!/bin/sh\nprintf '%%s' '%s'\n" "${{ github.event.inputs.localVersion }}" > scripts/setlocalversion
     
          # LTO Configuration - Enable Thin LTO only
          if [ "${{ github.event.inputs.LtoOptimizations }}" = "thin" ]; then
@@ -346,16 +280,6 @@ jobs:
          sed -i '/CONFIG_CC_OPTIMIZE_FOR_SIZE/d' "$CONFIG_FILE"
           
           # Apply selected optimization level
-          #apply_patch() {
-            #local url="$1";
-            #local file=$(basename "$url")
-            #curl -L -o "$file" "$url"
-            #patch -p1 < "$file" || echo "::warning::Hunks failed in $file"
-            #rm -f "$file"
-          #}
-          
-          #apply_patch "https://raw.githubusercontent.com/yougotme101/extra_stuff/main/custom-tickrate-options.patch"
-          
           case "${{ github.event.inputs.optimizationLevel }}" in
             default)
               # nothing to add here (keep it default)
@@ -409,42 +333,6 @@ jobs:
               echo "CONFIG_HZ=300" >> "$CONFIG_FILE"
               echo "CONFIG_HZ_300=y" >> "$CONFIG_FILE"
               ;;
-            500Hz)
-              sed -i '/^CONFIG_HZ_100=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_250=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_300=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_500=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_600=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_750=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_1000=/d' "$CONFIG_FILE"
-              echo "CONFIG_NO_HZ_IDLE=y" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ=500" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ_500=y" >> "$CONFIG_FILE"
-              ;;
-            600Hz)
-              sed -i '/^CONFIG_HZ_100=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_250=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_300=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_500=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_600=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_750=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_1000=/d' "$CONFIG_FILE"
-              echo "CONFIG_NO_HZ_IDLE=y" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ=600" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ_600=y" >> "$CONFIG_FILE"
-              ;;
-            750Hz)
-              sed -i '/^CONFIG_HZ_100=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_250=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_300=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_500=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_600=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_750=/d' "$CONFIG_FILE"
-              sed -i '/^CONFIG_HZ_1000=/d' "$CONFIG_FILE"
-              echo "CONFIG_NO_HZ_IDLE=y" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ=750" >> "$CONFIG_FILE"
-              echo "CONFIG_HZ_750=y" >> "$CONFIG_FILE"
-              ;;
             1000Hz)
               sed -i '/^CONFIG_HZ_100=/d' "$CONFIG_FILE"
               sed -i '/^CONFIG_HZ_250=/d' "$CONFIG_FILE"
@@ -456,63 +344,25 @@ jobs:
               ;;
           esac
 
+          # Kprofiles default mode
           case "${{ github.event.inputs.kProfilesMode }}" in
             default)
               # nothing to add here (keep it default)
               ;;
-              1)
+            1|2|3)
               sed -i '/^CONFIG_KP_DEFAULT_MODE=/d' "$CONFIG_FILE"
-              echo "CONFIG_KP_DEFAULT_MODE=1" >> "$CONFIG_FILE"
-              ;;
-              2)
-              sed -i '/^CONFIG_KP_DEFAULT_MODE=/d' "$CONFIG_FILE"
-              echo "CONFIG_KP_DEFAULT_MODE=2" >> "$CONFIG_FILE"
-              ;;
-              3)
-              sed -i '/^CONFIG_KP_DEFAULT_MODE=/d' "$CONFIG_FILE"
-              echo "CONFIG_KP_DEFAULT_MODE=3" >> "$CONFIG_FILE"
+              echo "CONFIG_KP_DEFAULT_MODE=${{ github.event.inputs.kProfilesMode }}" >> "$CONFIG_FILE"
               ;;
           esac
 
-          # Extra Addon configs
-          echo "CONFIG_TCP_CONG_ADVANCED=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_BIC=n" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_WESTWOOD=y" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_HTCP=n" >> "$CONFIG_FILE"
-          echo "CONFIG_TCP_CONG_BBR=y" >> "$CONFIG_FILE"
-          echo "CONFIG_DEFAULT_BBR=y" >> "$CONFIG_FILE"
-          echo "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y" >> "$CONFIG_FILE"
-          echo "CONFIG_PM_WAKELOCKS=y" >> "$CONFIG_FILE"
-          echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> "$CONFIG_FILE"
-          echo "CONFIG_PM_WAKELOCKS_GC=y" >> "$CONFIG_FILE"
-          echo "CONFIG_SUSPEND=y" >> "$CONFIG_FILE"
-          echo "CONFIG_SUSPEND_FREEZER=y" >> "$CONFIG_FILE"
-
-          # LZ4 Compression
-          #sed -i '/CONFIG_KERNEL_GZIP/d' "$CONFIG_FILE"
-          #sed -i '/CONFIG_KERNEL_LZO/d' "$CONFIG_FILE"
-          #sed -i '/CONFIG_KERNEL_XZ/d' "$CONFIG_FILE"
-          #sed -i '/CONFIG_KERNEL_ZSTD/d' "$CONFIG_FILE"
-          #sed -i '/CONFIG_KERNEL_BZIP2/d' "$CONFIG_FILE"
-          #sed -i '/CONFIG_KERNEL_UNCOMPRESSED/d' "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_GZIP is not set" >> "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_LZO is not set" >> "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_XZ is not set" >> "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_ZSTD is not set" >> "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_BZIP2 is not set" >> "$CONFIG_FILE"
-          echo "# CONFIG_KERNEL_UNCOMPRESSED is not set" >> "$CONFIG_FILE"
-          echo "CONFIG_CRYPTO_LZ4=y" >> "$CONFIG_FILE"
-          echo "CONFIG_KERNEL_LZ4=y" >> "$CONFIG_FILE"
-          echo "ZRAM_DEF_COMP_LZ4=y" >> "$CONFIG_FILE"
-
-          # Script sign patch
-          curl -L -o sign.patch "https://raw.githubusercontent.com/NotPichayut/Patches-Files/refs/heads/main/scripts-sign-builds.patch"
+          # Sign Builds
+          curl -L -o sign.patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch" 
           patch -p1 < sign.patch || echo "Warning: Strings patch failed"
-          
+
           # localversion
           # curl -L -o localversion.patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-do-not-ship-full-auto_localversion.patch" 
           # patch -p1 < localversion.patch || echo "Warning: Strings patch failed"
-          
+
       - name: '⚙️ Inject Reflex Governor'
         if: github.event.inputs.extraGovernor == 'reflex + vorpal'
         shell: bash
@@ -659,82 +509,16 @@ jobs:
             fi
           done
 
-      - name: "🚀 Add Droidspaces Support (fix KABI sysvipc)"
+      - name: "🔧 Add BBG Support (KSU variant only)"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         run: |
-          curl -sL "https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch" | git apply -v --ignore-whitespace
-
-          echo "🎉 Droidspaces setup complete!"
-      
-      - name: "😋 Add BBG Support"
-        if: matrix.variant == 'ksu'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          echo "Adding BBG..."
+          echo "Adding BBG...";
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           echo "CONFIG_BBG=y" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-
-          echo "🎉 BBG setup complete!"
-
-      - name: "🔧 Add NoMount Support"
-        if: github.event.inputs.NoMountSupport == 'yes'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
-     
-      - name: "🔧 Setup KernelSU"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'KernelSU'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
           
-          # Install KernelSU
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          
-          # Add KSU configs
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 KernelSU setup complete!" 
-      
-      - name: "🔧 Setup KowSU"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'KowSU'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
-          
-          # Install KowSU
-          curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
-          
-          # Add KSU configs
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 KowSU setup complete!"
-
-      - name: "🔧 Setup SukiSU-Ultra"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'SukiSU'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
-
-          echo "📦 Installing SukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs_new
-          
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 SukiSU setup complete!"
-
       - name: "🔧 Setup BakaSU"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'BakaSU'
+        if: matrix.variant == 'ksu'
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         run: |
           rm -rf ./KernelSU ./drivers/kernelsu
@@ -749,261 +533,6 @@ jobs:
           
           echo "🎉 BakaSU setup complete!"
 
-      - name: "🔧 Setup MamboSU"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'MamboSU'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
-
-          echo "📦 Installing MamboSU..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/master/kernel/setup.sh" | bash -s
-          
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 MamboSU setup complete!"
-
-      - name: "🔧 Setup KSU-Next(pershoot) + Multi Manager without SUSFS"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'KSU-Next'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
-
-          echo "📦 Installing KSU..."
-          echo "Applying KernelSU-Next (dev)..."
-          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev
-          echo "Applying All Managers Patch..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/kernel_builder/refs/heads/main/patch/ksun-add-more-managers-support.patch" | patch -p1 -d KernelSU-Next
-          if [ ! -L "drivers/kernelsu" ]; then
-             ln -sf ../KernelSU-Next drivers/kernelsu
-          fi
-          
-          echo "✔ KSU installed successfully"
-
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 KSU-Next(pershoot) setup complete!"
-
-      - name: "🔧 Setup KSU-Next(pershoot) + Multi Manager with SUSFS"
-        if: matrix.variant == 'ksu' && github.event.inputs.ksuVariant == 'KSU-Next(SUSFS)'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
-
-          echo "📦 Installing KSU..."
-          echo "Applying KernelSU-Next (dev-susfs)..."
-          curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-          echo "Applying All Managers Patch..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/kernel_builder/refs/heads/main/patch/ksun-add-more-managers-support.patch" | patch -p1 -d KernelSU-Next
-          if [ ! -L "drivers/kernelsu" ]; then
-             ln -sf ../KernelSU-Next drivers/kernelsu
-          fi
-          
-          echo "✔ KSU installed successfully"
-
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU=y
-          EOF
-          
-          echo "🎉 KSU-Next(pershoot) setup complete!"
-          
-      - name: "🚀 Inject SUSFS Integration"
-        if: matrix.variant == 'ksu' && github.event.inputs.susfsSupport == 'Enabled'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          echo "📥 Downloading SUSFS kernel patch..."
-          # Clone SUSFS4KSU for kernel patches only (not KSU integration)
-          echo "📦 Cloning SUSFS4KSU for kernel patches..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-
-          # echo "☣️ Applying namespace.c Fake Patch (if applicable)"
-          # if grep -q '^#include <trace/hooks/blk.h>$' fs/namespace.c; then
-          #  sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
-          #  NS_FAKE_PATCHED=1
-          # else
-          #  echo "ℹ️ blk.h include not present in fs/namespace.c — skipping fake patch"
-          #  NS_FAKE_PATCHED=0
-          # fi
-
-          # echo "☣️ Applying task_mmu.c Fake Patch (if applicable)"
-          # if grep -q '^#include <trace/hooks/mm.h>$' fs/proc/task_mmu.c; then
-          #  sed -i '/^#include <trace\/hooks\/mm.h>$/d' fs/proc/task_mmu.c
-          #  MM_FAKE_PATCHED=1
-          # else
-          #  echo "ℹ️ mm.h include not present in fs/proc/task_mmu.c — skipping fake patch"
-          #  MM_FAKE_PATCHED=0
-          # fi
-          
-          SUSFS_KERNEL_PATCH="$PWD/50_add_susfs_in_gki-android13-5.15.patch"
-          curl -fsSL -o "$SUSFS_KERNEL_PATCH" \
-            "https://raw.githubusercontent.com/nullptr-t-oss/kernel_kit/main/kernel_patches/salami-oos14/susfs/50_add_susfs_in_gki-android13-5.15.patch" \
-            || { echo "❌ Failed to download SUSFS patch"; exit 1; }
-
-          echo "🔧 Applying SUSFS kernel patch..."
-          if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
-            echo "✅ SUSFS patch successfully applied"
-          else
-            echo "⚠️ Patch had rejects — applying known include-only hunks manually"
-
-            if [ -f fs/namespace.c.rej ]; then
-              if ! grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c; then
-                perl -0pi -e 's{(#include "internal\.h"\n)}{$1#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif // #ifdef CONFIG_KSU_SUSFS\n}' fs/namespace.c
-                perl -0pi -e 's{(/\* Maximum number of mounts in a mount namespace \*/\n)}{#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n\n$1}' fs/namespace.c
-              fi
-              grep -q 'CL_COPY_MNT_NS BIT(25)' fs/namespace.c || { echo "❌ namespace.c manual inject failed"; exit 1; }
-              rm -f fs/namespace.c.rej fs/namespace.c.orig
-            fi
-
-            if [ -f fs/proc/task_mmu.c.rej ]; then
-              if ! grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c; then
-                perl -0pi -e 's{(#include <asm/elf\.h>\n)}{#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif\n\n$1}' fs/proc/task_mmu.c
-              fi
-              grep -q 'linux/susfs_def.h' fs/proc/task_mmu.c || { echo "❌ task_mmu.c manual inject failed"; exit 1; }
-              rm -f fs/proc/task_mmu.c.rej fs/proc/task_mmu.c.orig
-            fi
-
-            if find . -name '*.rej' ! -name 'mkcompile_h.rej' | grep -q .; then
-              echo "❌ Unexpected rejects remain"
-              find . -name '*.rej' ! -name 'mkcompile_h.rej' | while read -r r; do
-                echo "=== $r ==="; cat "$r"
-              done
-              exit 1
-            fi
-            echo "✅ SUSFS patch applied (with manual include fixups)"
-          fi
-          rm -f "$SUSFS_KERNEL_PATCH"
-
-          echo "🔁 SUSFS SELinux hooks: fake_state -> backup_sepolicy"
-          if ! grep -rq 'backup_sepolicy' drivers/kernelsu/; then
-            echo "❌ KernelSU side has no backup_sepolicy — this conversion doesn't fit this KSU version"
-            exit 1
-          fi
-          grep -rn 'security_context_to_sid_with_policy' drivers/kernelsu/ | head -5 || true
-
-          FS=security/selinux/selinuxfs.c
-          HK=security/selinux/hooks.c
-          E1='extern struct selinux_policy *backup_sepolicy;'
-          E2='extern int security_context_to_sid_with_policy(struct selinux_policy *policy, const char *scontext, u32 scontext_len, u32 *sid, u32 def_sid, gfp_t gfp_flags, u32 *orig_sid_p, int *orig_rc_p);'
-          E3='extern int security_sid_to_context_with_policy(struct selinux_policy *policy, u32 sid, char **scontext, u32 *scontext_len);'
-          E4='extern void security_compute_av_user_with_policy(struct selinux_policy *policy, u32 ssid, u32 tsid, u16 tclass, struct av_decision *avd);'
-
-          sed -i \
-            -e "s|^extern struct selinux_state fake_state;|${E1}\n${E2}\n${E3}\n${E4}|" \
-            -e 's|security_context_to_sid(&fake_state, buf, size, &sid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, buf, size, \&sid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
-            -e 's|security_sid_to_context(&fake_state, sid, &canon, &len)|security_sid_to_context_with_policy(backup_sepolicy, sid, \&canon, \&len)|' \
-            -e 's|security_context_str_to_sid(&fake_state, scon, &ssid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, scon, strlen(scon), \&ssid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
-            -e 's|security_context_str_to_sid(&fake_state, tcon, &tsid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, tcon, strlen(tcon), \&tsid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
-            -e 's|security_compute_av_user(&fake_state, ssid, tsid, tclass, &avd)|security_compute_av_user_with_policy(backup_sepolicy, ssid, tsid, tclass, \&avd)|' \
-            "$FS"
-
-          sed -i \
-            -e "s|^extern struct selinux_state fake_state;|${E1}\n${E2}|" \
-            -e 's|security_context_to_sid(&fake_state, value, size, &tmp_sid, GFP_KERNEL)|security_context_to_sid_with_policy(backup_sepolicy, value, size, \&tmp_sid, SECSID_NULL, GFP_KERNEL, NULL, NULL)|' \
-            "$HK"
-
-          if grep -n 'fake_state' "$FS" "$HK"; then
-            echo "❌ fake_state references remain"; exit 1
-          fi
-          echo "✅ fake_state converted"
-
-          echo "🔧 Applying SUSFS -> KernelSU patch..."
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          
-          echo "📄 Forcing SUSFS source injection..."
-          
-          # Always replace fs/susfs.c
-          mkdir -p fs
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
-          echo "✔ Copied fs/susfs.c"
-          
-          # Always replace include/linux/susfs.h
-          mkdir -p include/linux
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
-          echo "✔ Copied include/linux/susfs.h"
-          
-          # Also install missing susfs_def.h
-          if [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ]; then
-            cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
-            echo "✔ Copied include/linux/susfs_def.h"
-          else
-            echo "⚠️ susfs_def.h not found in repo"
-          fi
-          
-          echo "🔍 Verifying SUSFS files..."
-          for f in fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h; do
-            if [ -f "$f" ]; then echo "✔ Found: $f"; else echo "❌ Missing: $f"; fi
-          done
-          
-          # Clean up SUSFS repo (we only needed kernel patches, not KSU integration)
-          rm -rf susfs4ksu
-          
-          # Create symbolic link for drivers/kernelsu (if needed by build system)
-          if [ ! -L "drivers/kernelsu" ]; then
-            ln -sf ../KernelSU drivers/kernelsu
-            echo "✔ Created drivers/kernelsu symlink"
-          fi
-
-          echo "✅ SUSFS build wiring verified"
-
-          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          cat >> "$CONFIG_FILE" << 'EOF'
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
-          EOF
-
-          # echo "↩️ Reverting namespace.c Fake Patch (if applicable)"
-          # if [ "$NS_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/blk.h' fs/namespace.c; then
-          #  if grep -q '^#include "internal.h"$' fs/namespace.c; then
-          #    sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
-          #    echo "✔ Restored blk.h include"
-          #  else
-          #    echo "⚠️ Anchor #include \"internal.h\" not found — could not restore blk.h include, check fs/namespace.c manually"
-          #  fi
-          # else
-          #  echo "ℹ️ Skipping blk.h restore (not fake-patched or already present)"
-          # fi
-
-          # echo "↩️ Reverting task_mmu.c Fake Patch (if applicable)"
-          # if [ "$MM_FAKE_PATCHED" = "1" ] && ! grep -q 'trace/hooks/mm.h' fs/proc/task_mmu.c; then
-          #  if grep -q '^#include <linux/pkeys.h>$' fs/proc/task_mmu.c; then
-          #    sed -i '/^#include <linux\/pkeys.h>$/a #include <trace/hooks/mm.h>' fs/proc/task_mmu.c
-          #    echo "✔ Restored mm.h include"
-          #  else
-          #    echo "⚠️ Anchor #include <linux/pkeys.h> not found — could not restore mm.h include, check fs/proc/task_mmu.c manually"
-          #  fi
-          # else
-          #  echo "ℹ️ Skipping mm.h restore (not fake-patched or already present)"
-          # fi
-          
-          echo "🎉 KSU Config + SUSFS Integration setup complete!"
-
-      - name: "🔧 Fix compilation errors in FUSE"
-        if: github.event.inputs.kernelBranch == 'codelinaro'
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        run: |
-          echo "🛠 Fixing fs/fuse/dev.c..."
-        
-          # 1. Replace problematic 'dprintk' calls with 'pr_debug' or comment out the log line
-          sed -i 's/dprintk("Request finished/pr_debug("Request finished/g' fs/fuse/dev.c
-          sed -i 's/dprintk("Interrupt already queued/pr_debug("Interrupt already queued/g' fs/fuse/dev.c
-        
-          # 2. Fix usage of the nonexistent flag FR_INTR_QUEUED, replacing it with the suggested FR_INTERRUPTED
-          sed -i 's/FR_INTR_QUEUED/FR_INTERRUPTED/g' fs/fuse/dev.c
-          
       - name: "🔨 Build kernel with clang-r614150"
         if: github.event.inputs.buildToolchains == 'clang-r614150'
         working-directory: ${{ env.WORK_DIR }}
@@ -1013,8 +542,8 @@ jobs:
           else
            LTO=full BUILD_CONFIG=${{ env.kernelDir }}/${{ env.kernelName }}/build.config.gki.aarch64 build/build.sh -j$(nproc --all)
           fi
-
-      - name: "👍 Make defconfig for custom clang"
+          
+      - name: "👍 Make defconfig"
         if: github.event.inputs.buildToolchains == 'custom-tools'
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
@@ -1022,7 +551,7 @@ jobs:
         run: |
           make ${{ env.args }} ${{ env.DEFCONFIG_NAME }}
 
-      - name: "🎶 Build kernel with custom clang"
+      - name: "🎶 Build kernel"
         if: github.event.inputs.buildToolchains == 'custom-tools'
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
@@ -1036,8 +565,8 @@ jobs:
             OBJCOPY=llvm-objcopy \
             STRIP=llvm-strip \
             -j$(nproc --all)
-
-      - name: "📦 Prepare artifact"
+          
+      - name: 📦 Prepare artifact
         working-directory: ${{ env.WORK_DIR }}
         run: |
          mkdir -p out/dist
@@ -1070,13 +599,13 @@ jobs:
       - name: "📦 Create flashable ZIP"
         run: |
           BUILD_TIME=$(date +'%Y-%m-%d')
-          git clone --depth=1 https://github.com/NotPichayut/AnyKernel3 -b master AnyKernel3
+          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b master AnyKernel3
           
           # Copy kernels
           find kernels -name "Image.*" -exec cp {} AnyKernel3/ \;
           
           # Create ZIP
-          ZIP_NAME="${{ github.event.inputs.ksuVariant }}_AK3${{ github.event.inputs.localVersion }}_${BUILD_TIME}.zip"
+          ZIP_NAME="Anykernel3_${{ github.event.inputs.kernelBranch }}_${BUILD_TIME}.zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -1084,7 +613,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: "📤 Upload final package"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_PATH }}
@@ -1097,30 +626,25 @@ jobs:
           KSU_TEXT=""
          if [ "${{ github.event.inputs.buildKSU }}" != "noksu" ]; then
           KSU_TEXT="
-         
-         🔐 *KSU Variant:* \`${{ github.event.inputs.ksuVariant }}\`"
+          
+         🔐 *KSU Variant:* \`BakaSU\`"
          fi
       
          CAPTION="✅ *Kernel Build Successful*
       
          📦 *Build Information:*
          • Kernel: \`Linux ${{ env.KERNEL_VERSION }}\`
-         • Android: \`13-17\`
+         • Android: \`13-16\`
          • Branch: \`${{ github.event.inputs.kernelBranch }}\`
-         • Defconfig: \`${{ github.event.inputs.kernelDevice }}\`
-         • Device: \`Redmi Note 12, Redmi Note 13, Redmi Pad SE, REDMI 15, POCO M7\`
+         • Device: \`${{ github.event.inputs.kernelDevice }}\`
     
          ⚙️ *Configuration:*
          • LTO: \`${{ github.event.inputs.LtoOptimizations }}\`
          • Optimization: \`-${{ github.event.inputs.optimizationLevel }}\`
          • Tick Rate: \`${{ github.event.inputs.tickRate }}\`
          • Build Type: \`${{ github.event.inputs.buildKSU }}\`${KSU_TEXT}
-         • SUSFS: \`${{ github.event.inputs.susfsSupport }} (GKI A13.5-15)\`
-         • BBG: \`Enabled\`
-         • Droidspaces: \`Enabled\`
          • Local Version: \`${{ github.event.inputs.localVersion }}\`
          • Build Tools: \`${{ github.event.inputs.buildToolchains }}\`
-         • Manager: \`${{ github.event.inputs.ksuVariant }}\`
     
          🕐 *Build Date:* $(date '+%Y-%m-%d %H:%M:%S UTC')
          📦 *Package:* \`${{ env.ZIP_NAME }}\`"
@@ -1135,22 +659,17 @@ jobs:
       
          📦 *Build Information:*
          • Kernel: \`Linux ${{ env.KERNEL_VERSION }}\`
-         • Android: \`13-17\`
+         • Android: \`13-16\`
          • Branch: \`${{ github.event.inputs.kernelBranch }}\`
-         • Defconfig: \`${{ github.event.inputs.kernelDevice }}\`
-         • Device: \`Redmi Note 12, Redmi Note 13, Redmi Pad SE, REDMI 15, POCO M7\`
+         • Device: \`Redmi Note 12/13 4G. Pad SE\`
     
          ⚙️ *Configuration:*
          • LTO: \`${{ github.event.inputs.LtoOptimizations }}\`
          • Optimization: \`-${{ github.event.inputs.optimizationLevel }}\`
          • Tick Rate: \`${{ github.event.inputs.tickRate }}\`
          • Build Type: \`${{ github.event.inputs.buildKSU }}\`${KSU_TEXT}
-         • SUSFS: \`${{ github.event.inputs.susfsSupport }} (GKI A13.5-15)\`
-         • BBG: \`Enabled\`
-         • Droidspaces: \`Enabled\`
          • Local Version: \`${{ github.event.inputs.localVersion }}\`
          • Build Tools: \`${{ github.event.inputs.buildToolchains }}\`
-         • Manager: \`${{ github.event.inputs.ksuVariant }}\`
       
          🕐 *Failed at:* $(date '+%Y-%m-%d %H:%M:%S UTC')
     
