@@ -637,7 +637,7 @@ jobs:
          • Android: \`13-17\`
          • Branch: \`${{ github.event.inputs.kernelBranch }}\`
          • Defconfig: \`${{ github.event.inputs.kernelDevice }}\`
-         • Device: \`github.event.inputs.kernelDevice\`
+         • Device: \`Redmi Note 12, Redmi Note 13, Redmi Pad SE\`
     
          ⚙️ *Configuration:*
          • LTO: \`${{ github.event.inputs.LtoOptimizations }}\`
